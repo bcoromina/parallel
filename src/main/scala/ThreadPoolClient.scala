@@ -1,19 +1,47 @@
+import cats.{Applicative, Monad, Parallel}
+import cats.effect.{IO, Sync}
+
+import java.net.URI
+import java.net.http.HttpResponse.BodyHandlers
+import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent._
 import scala.collection.parallel.CollectionConverters._
 import scala.collection.parallel.{ExecutionContextTaskSupport, ForkJoinTaskSupport}
 import scala.concurrent.ExecutionContext
+import scala.util.Try
+import cats.implicits._
 
 
 
-class ThreadPoolClient() extends Client with JavaHttpClient{
-  override def collectFromRoutes(routes: List[String]) : Int = {
-    val parallelCollection = routes.par
-    parallelCollection.tasksupport = ThreadPoolClient.executionContextTaskSupport
-    parallelCollection.flatMap( route => getFromRoute(route).toOption).fold(List.empty[Int])( _ ++ _).sum
+class ThreadPoolClient[F[_]: Sync]() extends Client[F] with JavaHttpClient{
+  override def collectFromRoutes(routes: List[String]) : F[Int] = {
+      Sync[F].delay{
+        val parallelCollection = routes.par
+        parallelCollection.tasksupport = ThreadPoolClient.executionContextTaskSupport
+        parallelCollection.flatMap( route => getFromRoute(route).toOption).fold(List.empty[Int])( _ ++ _).sum
+      }
   }
 }
 
+class IoBlockingClient[F[_]: Sync: Monad: Parallel] extends Client[F] {
+
+  private def getFromRoute(route: String, client: HttpClient): F[List[Int]] = {
+    val request = HttpRequest.newBuilder().uri(URI.create(route)).build() // is effectful?
+    Sync[F].blocking(client.send(request, BodyHandlers.ofString())).map{ response =>
+      response.body().split(" ").toList.map(_.toInt)
+    }
+  }
+
+  override def collectFromRoutes(routes: List[String]) : F[Int] = {
+    for{
+      client <- Sync[F].delay(HttpClient.newHttpClient())
+      result <-routes.parTraverse(route => getFromRoute(route, client)).map(_.flatten.sum)
+    }yield {
+      result
+    }
+  }
+}
 
 
 

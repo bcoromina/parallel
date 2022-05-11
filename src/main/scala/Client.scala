@@ -3,8 +3,8 @@ import java.net.http.{HttpClient, HttpRequest}
 import java.net.http.HttpResponse.BodyHandlers
 import scala.util.Try
 
-trait Client {
-  def collectFromRoutes(routes: List[String]) : Int
+trait Client[F[_]] {
+  def collectFromRoutes(routes: List[String]) : F[Int]
 }
 
 

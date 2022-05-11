@@ -1,17 +1,21 @@
+import cats.effect.IO
+import cats.effect.unsafe.implicits.global
 import org.scalatest.funspec.AnyFunSpec
 
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.{Executors, ThreadFactory}
-import scala.concurrent.{Await, ExecutionContext, Future, Promise}
+import java.util.concurrent.Executors
 import scala.concurrent.duration.{Duration, DurationInt, FiniteDuration}
-import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.util.Try
+
 
 class ClientSpec extends AnyFunSpec {
 
+
   describe("A client"){
 
-    def testClient(client: Client) = {
+
+
+    def testClient(client: Client[IO]) = {
       val serverPort = 4545
       val routesResponses = List(
         RouteResponse("/a", "1 2 3 4"), // http://localhost:4545/a
@@ -24,7 +28,7 @@ class ClientSpec extends AnyFunSpec {
 
       blockedServer.start()
 
-      val fresult = Future{client.collectFromRoutes(routesResponses.map(rr => s"http://localhost:$serverPort${rr.route}"))}
+      val fresult = client.collectFromRoutes(routesResponses.map(rr => s"http://localhost:$serverPort${rr.route}")).unsafeToFuture()
 
       Esperador.esperaSync(2.seconds){ () =>
         blockedServer.getNumConcurrentBloquedRequests() == routesResponses.size
@@ -34,11 +38,19 @@ class ClientSpec extends AnyFunSpec {
       val result = Await.result(fresult, 2.seconds)
       assert(result == expectedResult)
       blockedServer.stop()
+
     }
 
-    it("shoult collect data concurrently"){
+
+    it("par sequence"){
       testClient(new ThreadPoolClient)
     }
+
+    it(" IO.blocking client"){
+      testClient(new IoBlockingClient)
+    }
+
+
   }
 
 }
